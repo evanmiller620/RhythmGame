@@ -33,19 +33,16 @@ let scores = [];
 // Initialize the game
 function init() {
     try {
-        // Remove the existing canvas if it exists
         const canvas = document.getElementById('canvas');
         canvas.remove();
     } catch (e) {
         console.log(e);
     }
-    // Remove the canvas from the DOM
     canvas = document.createElement('canvas');
     canvas.width = CANVAS_WIDTH;
     canvas.height = CANVAS_HEIGHT;
     canvas.id = 'canvas';
     power = [false, false, false, false];
-    // set the color of the canvas to black
     canvas.style.backgroundColor = "black";
     document.body.appendChild(canvas);
     ctx = canvas.getContext('2d');
@@ -54,9 +51,7 @@ function init() {
     
     scores = [0,0,0];
 
-    // Start the game loop
     gameStartTime = Date.now();
-    
     updateScoreboard();
     requestAnimationFrame(gameLoop);
 }
@@ -170,6 +165,9 @@ function handleKeyPressPlaying(event) {
             
             updateScoreboard('Miss!');
         }
+    }
+    if (recordedKeys.length == 0 && notes.length == 0) {
+        stopPlayback();
     }
 }
 function handleKeyRelease(event) {
@@ -366,7 +364,7 @@ function runSong(songNum) {
         }
     }
     console.log("Starting complete");
-    beatMap = ['super.csv', 'super1.csv', 'super2.csv', 'super.csv']
+    beatMap = ['yeee.csv', 'super1.csv', 'super2.csv', 'super.csv']
     loadLocalMapping('assets/' + beatMap[songNum]);
 }
 
@@ -378,7 +376,6 @@ function startRecording() {
     isRecording = true;
     recordedKeys = [];
     score = 0;
-    gameStartTime = Date.now();
     RECORD.textContent = 'Stop Recording';
     loadSong('unhappyRefrain.flac');
     document.addEventListener('keydown', handleKeyPressRecord);
@@ -416,24 +413,6 @@ function handleKeyPressRecord(event) {
             key: event.key,
             time: Date.now() - gameStartTime
         });
-    }
-}
-
-function handleKeyPress(e) {
-    if (keys.includes(e.key)) {
-        if (isRecording) {
-            
-        }
-
-        const notes = document.getElementsByClassName('note');
-        for (let note of notes) {
-            if (checkCollision(note) && note.style.backgroundColor === keyColors[e.key]) {
-                gameArea.removeChild(note);
-                score++;
-                scoreDisplay.textContent = score;
-                break;
-            }
-        }
     }
 }
 
