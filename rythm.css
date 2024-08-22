@@ -1,0 +1,87 @@
+body { 
+    background-image: url('assets/background-image.jpg');
+    background-size: cover; 
+    background-position: center;
+    background-repeat: no-repeat; 
+    font-family: Arial, sans-serif; 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    height: 100vh; 
+    margin: 0; 
+}
+
+canvas {
+    display: flex;
+    margin: 20px auto; /* Center the canvas horizontally and add margin */
+}
+button { 
+    font-size: 18px; 
+    /* margin: 10px;  */
+    padding: 10px 20px; 
+}
+
+.dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.dropdown-content {
+    display: none;
+    position: absolute;
+    background-color: #797979;
+    min-width: 140px;
+    box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+    z-index: 1;
+}
+
+.dropdown-content button {
+    background: none;
+    border: none;
+    padding: 12px 16px;
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
+    margin: 0px; 
+}
+
+.dropdown-content button:hover {background-color: #494949}
+
+.show {display: block;}
+.side-bar {
+    position: fixed; /* Fixes the bar to the side */
+    top: 0;
+    left: 0;
+    height: 100%; /* Full height of the viewport */
+    width: 200px; /* Adjust width as needed */
+    background-color: #333; /* Dark background color */
+    color: white; /* Text color */
+    display: flex; /* Flexbox for alignment */
+    flex-direction: column; /* Stack buttons vertically */
+    align-items: center; /* Center buttons horizontally */
+    padding: 20px 0; /* Padding around the content */
+    box-shadow: 2px 0 5px rgba(0, 0, 0, 0.3); /* Optional shadow */
+    z-index: 1000; /* Ensures the bar stays on top of other content */
+}
+
+.side-bar-button {
+    background-color: #555; /* Button background color */
+    border: none; /* Remove default border */
+    color: white; /* Button text color */
+    padding: 10px 20px; /* Padding inside buttons */
+    margin: 10px 0; /* Margin between buttons */
+    border-radius: 5px; /* Rounded corners */
+    cursor: pointer; /* Pointer cursor on hover */
+    font-size: 16px; /* Font size */
+    width: 100%; /* Button takes full width of the sidebar */
+}
+
+.side-bar-button:hover {
+    background-color: #777; /* Lighter background on hover */
+}
+
+main {
+    margin-left: 220px; /* Offset main content to the right of the sidebar */
+    padding: 20px; /* Padding for content */
+    flex: 1; /* Ensures main content takes up the remaining space */
+}

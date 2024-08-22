@@ -3,42 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Algorithm Visualizer</title>
-    <link rel="stylesheet" href="styles.css">
-    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <title>Rythm!!!!!</title>
+    <link rel="stylesheet" href="rythm.css">
 </head>
 <body>
-    <header>
-        <h1>Advanced Algorithm Visualizer</h1>
-    </header>
-    <main>
-        <div id="sidebar">
-            <h2>Controls</h2>
-            <button id="generate-graph">Generate Random Graph</button>
-            <button id="clear-graph">Clear Graph</button>
-            <button id="add-node">Add Node</button>
-            <button id="add-edge">Add Edge</button>
-            <button id="remove-element">Remove Node/Edge</button>
-            <h3>Algorithm</h3>
-            <select id="algorithm-select">
-                <option value="">Select Algorithm</option>
-                <option value="bfs">Breadth-First Search</option>
-                <option value="dfs">Depth-First Search</option>
-                <option value="dijkstra">Dijkstra's Algorithm</option>
-            </select>
-            <button id="run-algorithm" disabled>Run Algorithm</button>
-            <div id="algorithm-info">
-                <h3>Current Algorithm:</h3>
-                <p id="current-algorithm">None</p>
-            </div>
-            <div id="node-info">
-                <h3>Node Info:</h3>
-                <p>Start Node: <span id="start-node">None</span></p>
-                <p>End Node: <span id="end-node">None</span></p>
+    <div class="side-bar">
+        <div class="dropdown">
+            <button onclick="toggleDropdown()">Choose Song</button>
+            <div id="myDropdown" class="dropdown-content">
+                <button onclick="runSong(0)">amogus</button>
+                <button onclick="runSong(1)">Song!</button>
+                <button onclick="runSong(2)">anothersong</button>
+                <button onclick="runSong(3)">ahhhhhhhh</button>
             </div>
         </div>
-        <div id="visualization"></div>
-    </main>
-    <script src="script.js"></script>
+        <button id="playback-btn">Import Beatmap</button>
+        <input type="file" id="load-input" style="display: none;" accept=".csv">
+        <button id="record-btn">Record Beatmap</button>
+    </div>
+    <script src="rythm.js"></script>
 </body>
 </html>
