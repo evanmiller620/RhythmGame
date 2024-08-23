@@ -1,2 +1,2 @@
-Rythm Game!
-[https://evanmiller620.github.io/RythmGame/](https://evanmiller620.github.io/RythmGame/)
+Rhythm Game!
+[https://evanmiller620.github.io/RhythmGame/](https://evanmiller620.github.io/RhythmGame/)
