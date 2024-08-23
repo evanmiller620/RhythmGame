@@ -17,8 +17,11 @@ canvas {
 }
 button { 
     font-size: 18px; 
-    /* margin: 10px;  */
     padding: 10px 20px; 
+}
+
+#keys button {
+    padding: 5px; 
 }
 
 .dropdown {

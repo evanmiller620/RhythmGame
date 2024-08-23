@@ -7,7 +7,7 @@ const CANVAS_HEIGHT = 800;
 const NOTE_SPEED = 12;
 const JUDGMENT_LINE_Y = CANVAS_HEIGHT - 70;
 const LINE_GAP = 50;
-const KEY_MAP = ['KeyA', 'KeyS', 'KeyK', 'KeyL'];
+
 const PERFECT_THRESHOLD = 30;
 const GOOD_THRESHOLD = 150;
 const LANE_WIDTH = 100;
@@ -15,6 +15,7 @@ const LANE_START_X = 250;
 const NOTE_WIDTH = 100;
 
 // Game variables
+var key_map = ['KeyA', 'KeyS', 'KeyK', 'KeyL'];
 let canvas, ctx;
 let notes = [];
 let score = 0;
@@ -29,6 +30,7 @@ let isPlayback = false;
 let recordedKeys = [];
 let power = [];
 let scores = [];
+let targetButton = null;
 
 // Initialize the game
 function init() {
@@ -53,7 +55,12 @@ function init() {
 
     gameStartTime = Date.now();
     updateScoreboard();
-    requestAnimationFrame(gameLoop);
+    if(isRecording) {
+        requestAnimationFrame(recordLoop);
+    }
+    else {
+        requestAnimationFrame(gameLoop);
+    }
 }
 
 
@@ -62,7 +69,7 @@ function gameLoop() {
     // Clear the canvas
     ctx.clearRect(LANE_START_X, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     const currentTime = Date.now() - gameStartTime;
-    if (recordedKeys.length > 0 && currentTime >= recordedKeys[0].time) {
+    if (!isRecording && recordedKeys.length > 0 && currentTime >= recordedKeys[0].time) {
         // Generate new notes
         generateNotes(recordedKeys[0].key);
         recordedKeys.shift();
@@ -115,6 +122,54 @@ function gameLoop() {
     requestAnimationFrame(gameLoop);
 }
 
+function recordLoop() {
+    // Clear the canvas
+    ctx.clearRect(LANE_START_X, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    if (!isRecording && recordedKeys.length > 0 && currentTime >= recordedKeys[0].time) {
+        // Generate new notes
+        generateNotes(recordedKeys[0].key);
+        recordedKeys.shift();
+    }
+
+    // Update and draw notes
+    notes.forEach((note, index) => {
+        note.y += NOTE_SPEED;
+        if (note.y < 0 - NOTE_WIDTH) {
+            notes.splice(index, 1);
+        } else {
+            ctx.fillStyle = ['red', 'blue', 'green', 'yellow'][note.lane];
+            ctx.fillRect(note.x, CANVAS_HEIGHT - note.y-NOTE_WIDTH/2, LANE_WIDTH, 100);
+        }
+    });
+
+    // Draw lane separators
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 2;
+    for (let i = 0; i <= 4; i++) {
+        ctx.beginPath();
+        ctx.moveTo(LANE_START_X + i * LANE_WIDTH, 0);
+        ctx.lineTo(LANE_START_X + i * LANE_WIDTH, JUDGMENT_LINE_Y + LINE_GAP + 3);
+        ctx.stroke();
+    }
+    
+    // Draw judgment line
+    ctx.fillStyle = 'white';
+    ctx.fillRect(LANE_START_X, JUDGMENT_LINE_Y + LINE_GAP, LANE_WIDTH * 4, 5);
+    ctx.fillRect(LANE_START_X, JUDGMENT_LINE_Y - LINE_GAP, LANE_WIDTH * 4, 5);
+
+    // Draw arrow markers
+    const arrowDirections = ['left', 'down', 'up', 'right'];
+    for (let i = 0; i < 4; i++) {
+        drawArrow(LANE_START_X + i * LANE_WIDTH + LANE_WIDTH / 2 - 10, CANVAS_HEIGHT - 80, arrowDirections[i], power[i]);
+    }
+    if (!(isPlayback || isRecording)) {
+        audioSource.stop();
+        keys = [];
+        return;
+    } 
+    requestAnimationFrame(recordLoop);
+}
+
 // Load and play a song
 function loadSong(url) {
     fetch(url)
@@ -141,7 +196,7 @@ function generateNotes(lane) {
 }
 
 function handleKeyPressPlaying(event) {
-    const keyIndex = KEY_MAP.indexOf(event.code);
+    const keyIndex = key_map.indexOf(event.code);
     if (keyIndex !== -1) {
         const lane = keyIndex;
         power[lane] = true;
@@ -171,7 +226,7 @@ function handleKeyPressPlaying(event) {
     }
 }
 function handleKeyRelease(event) {
-    const keyIndex = KEY_MAP.indexOf(event.code);
+    const keyIndex = key_map.indexOf(event.code);
     if (keyIndex !== -1) {
         const lane = keyIndex;
         power[lane] = false;
@@ -364,7 +419,7 @@ function runSong(songNum) {
         }
     }
     console.log("Starting complete");
-    beatMap = ['yeee.csv', 'super1.csv', 'super2.csv', 'super.csv']
+    beatMap = ['yeee.csv', 'super1.csv', 'super2.csv', 'super.csv', 'hard.csv']
     loadLocalMapping('assets/' + beatMap[songNum]);
 }
 
@@ -391,6 +446,7 @@ function stopRecording() {
 }
 
 function saveRecordingToCSV() {
+    console.log("Recorded keys: ", recordedKeys);
     const csvContent = "data:text/csv;charset=utf-8," 
         + "key,time\n"
         + recordedKeys.map(keypress => `${keypress.key},${keypress.time}`).join("\n");
@@ -401,19 +457,69 @@ function saveRecordingToCSV() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    recordedKeys = [];
+    notes = [];
 }
 
+function setTargetButton(button) {
+    targetButton = button;
+    button.textContent = "Press a key...";
+    // Add keydown event listener to the document
+    document.addEventListener('keydown', handleKeyPress);
+}
+
+
 function handleKeyPressRecord(event) {
-    const keyIndex = KEY_MAP.indexOf(event.code);
+    const keyIndex = key_map.indexOf(event.code);
     if (keyIndex !== -1) {
         const lane = keyIndex;
         power[lane] = true;
-        console.log("Key pressed: ", event.key);
+        const map = ['a', 's', 'k', 'l'];
+        console.log("Lane pressed: ", map[lane]);
+        const key = map[lane];
+        generateNotes(key);
         recordedKeys.push({
-            key: event.key,
+            key: key,
             time: Date.now() - gameStartTime
         });
     }
 }
+
+function handleKeyPress(event) {
+    if (targetButton) {
+        let keyPressed = event.key;
+
+        // Map arrow keys to arrow symbols
+        const arrowKeys = {
+            ArrowUp: "↑",
+            ArrowDown: "↓",
+            ArrowLeft: "←",
+            ArrowRight: "→"
+        };
+
+        if (arrowKeys[keyPressed]) {
+            keyPressed = arrowKeys[keyPressed];
+        }
+
+        targetButton.textContent = keyPressed;
+        key_map[targetButton.id] = event.code;
+        targetButton = null; 
+
+        document.removeEventListener('keydown', handleKeyPress);
+    }
+}
+
+document.getElementById('0').addEventListener('click', function() {
+    setTargetButton(this);
+});
+document.getElementById('1').addEventListener('click', function() {
+    setTargetButton(this);
+});
+document.getElementById('2').addEventListener('click', function() {
+    setTargetButton(this);
+});
+document.getElementById('3').addEventListener('click', function() {
+    setTargetButton(this);
+});
 
 init();
