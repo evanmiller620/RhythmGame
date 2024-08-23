@@ -308,7 +308,7 @@ function startPlayback(songNum) {
     combo = 0;
     // Set up audio context
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    map = ['unhappyRefrain.flac', 'unhappyRefrain.flac', 'unhappyRefrain.flac', 'unhappyRefrain.flac']
+    map = ['night.mp3', 'night.mp3', 'night.mp3', 'night.mp3', 'night.mp3']
     loadSong(map[songNum]);
     scores = [0,0,0]
     console.log("Starting complete");
@@ -419,7 +419,7 @@ function runSong(songNum) {
         }
     }
     console.log("Starting complete");
-    beatMap = ['yeee.csv', 'super1.csv', 'super2.csv', 'super.csv', 'hard.csv']
+    beatMap = ['yeee.csv', 'super1.csv', 'super2.csv', 'super.csv', 'hard.csv', 'night.csv']
     loadLocalMapping('assets/' + beatMap[songNum]);
 }
 
@@ -432,7 +432,7 @@ function startRecording() {
     recordedKeys = [];
     score = 0;
     RECORD.textContent = 'Stop Recording';
-    loadSong('unhappyRefrain.flac');
+    loadSong('night.mp3');
     document.addEventListener('keydown', handleKeyPressRecord);
     init();
 }
