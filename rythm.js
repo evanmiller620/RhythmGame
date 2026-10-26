@@ -32,8 +32,9 @@ const SONGS = {
 // time. A negative offset reproduces that, tuned against the song's beats.
 // Players can fine-tune each map in game (- and = keys, or the pause menu).
 const CHARTS = [
-    { id: 'night-normal', song: 'night', title: 'Night', level: 'Normal', src: 'assets/night2.csv', offset: -614, accent: 1 },
-    { id: 'night-hard',   song: 'night', title: 'Night', level: 'Hard',   src: 'assets/night.csv',  offset: -542, accent: 0 },
+    // onlineId matches the built-in rows seeded by supabase/rhythm_schema.sql (leaderboards, play counts).
+    { id: 'night-normal', onlineId: '1a576d70-7964-4e49-bd79-bcbacb393451', song: 'night', title: 'Night', level: 'Normal', src: 'assets/night2.csv', offset: -614, accent: 1 },
+    { id: 'night-hard',   onlineId: 'cd3f9ca2-bd42-4150-a466-1625a3a4bd47', song: 'night', title: 'Night', level: 'Hard',   src: 'assets/night.csv',  offset: -542, accent: 0 },
 ];
 
 // Hit windows in milliseconds (either side of the note).
@@ -106,7 +107,6 @@ function saveSettings() { store.set('settings', settings); }
 const $ = (id) => document.getElementById(id);
 const el = {
     canvas: $('playfield'),
-    chartList: $('chart-list'),
     importBtn: $('import-btn'),
     recordBtn: $('record-btn'),
     loadInput: $('load-input'),
@@ -539,8 +539,9 @@ function quitToMenu() {
     state.recordingSaved = true;      // leaving was confirmed, or there was nothing to save
     if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
     renderMenu();
-    renderCommunity();
+    if (detail.key) loadLeaderboard();    // a score may have just been posted
     setScreen('menu');
+    if (detail.key) $('detail-start').focus();
 }
 
 function finishPlay() {
@@ -559,9 +560,8 @@ function finishPlay() {
     const chart = state.chart;
     const score = Math.round(state.score);
 
-    // Built-in and community maps keep a best score in this browser.
+    // Library maps (built-in and shared) keep a best score in this browser.
     let isBest = false;
-    if (chart.community) countCommunityPlay(chart.onlineId);
     if (CHARTS.includes(chart) || chart.community) {
         const prev = bests[chart.id];
         if (!prev || score > prev.score) {
@@ -585,6 +585,10 @@ function finishPlay() {
     $('r-good').textContent = state.counts.good;
     $('r-miss').textContent = state.counts.miss;
 
+    afterLibraryRun(chart, {
+        at: Date.now(), score, acc: Math.round(acc * 100) / 100, grade,
+        combo: state.maxCombo, counts: { ...state.counts },
+    });
     suggestOffset(state.deltas);
     const unsaved = chart.id === 'recording' && !state.recordingSaved;
     $('results-download').hidden = !unsaved;
@@ -742,6 +746,7 @@ function eventSongTime(e) {
 window.addEventListener('keydown', (e) => {
     if (rebindLane !== -1) return;              // handled by the settings dialog
     if (anyDialogOpen()) return;                // typing in a dialog never hits lanes
+    if (isTextField(e.target)) return;          // nor does typing a name on the results screen
 
     const lane = settings.keys.indexOf(e.code);
     const inRun = state.screen === 'play' || state.screen === 'record';
@@ -751,6 +756,7 @@ window.addEventListener('keydown', (e) => {
         if (inRun) pause();
         else if (state.screen === 'pause') resume();
         else if (state.screen === 'results' && state.recordingSaved) quitToMenu();
+        else if (state.screen === 'menu' && detail.key) closeDetail();
         // On the recording screen Esc does nothing, so a recording is never lost by accident.
         return;
     }
@@ -770,6 +776,10 @@ window.addEventListener('keydown', (e) => {
 });
 
 function anyDialogOpen() { return !!document.querySelector('dialog[open]'); }
+function isTextField(t) {
+    return !!t && (t.isContentEditable || t.tagName === 'TEXTAREA' ||
+        (t.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button', 'submit', 'file'].includes(t.type)));
+}
 
 function formatMs(ms) { return `${ms > 0 ? '+' : ''}${Math.round(ms)} ms`; }
 
@@ -1249,50 +1259,8 @@ $('timing-plus').addEventListener('click', () => nudgeTiming(10));
 // ------------------------------------------------------------------
 
 function renderMenu() {
-    el.chartList.innerHTML = '';
-    for (const chart of CHARTS) {
-        const notes = chartData.get(chart.id);
-        const li = document.createElement('li');
-        const btn = document.createElement('button');
-        btn.className = 'chart';
-        btn.style.setProperty('--accent', LANE_COLORS[chart.accent]);
-
-        const name = document.createElement('span');
-        name.className = 'chart-name';
-        name.textContent = chart.title;
-        const level = document.createElement('span');
-        level.className = 'chart-level';
-        level.textContent = chart.level;
-        name.appendChild(level);
-
-        const meta = document.createElement('span');
-        meta.className = 'chart-meta';
-        if (notes && notes.length) {
-            const span = notes[notes.length - 1].time - notes[0].time;
-            meta.textContent = `${notes.length} notes in ${formatDuration(span)}`;
-        } else {
-            meta.textContent = 'Map unavailable';
-            btn.disabled = true;
-        }
-
-        const best = document.createElement('span');
-        best.className = 'chart-best';
-        const b = bests[chart.id];
-        if (b) {
-            best.innerHTML = `<strong></strong>`;
-            best.firstChild.textContent = b.grade;
-            best.append(Math.round(b.score).toLocaleString());
-        } else {
-            best.textContent = 'Not played';
-        }
-
-        btn.append(name, meta, best);
-        btn.addEventListener('click', () => {
-            if (notes) startPlay(chart, notes, btn);
-        });
-        li.appendChild(btn);
-        el.chartList.appendChild(li);
-    }
+    renderLibrary();
+    if (detail.key) renderDetail();
     updateKeyHint();
 }
 
@@ -1362,157 +1330,200 @@ $('record-again').addEventListener('click', () => confirmDiscard($('record-again
 $('record-menu').addEventListener('click', () => confirmDiscard($('record-menu'), quitToMenu));
 
 // ------------------------------------------------------------------
-// Community maps (shared online through Supabase, see online.js)
+// Library: built-in and shared maps, song pages, leaderboards
 // ------------------------------------------------------------------
 
 const online = window.RhythmOnline || { configured: false };
-const COMMUNITY_PAGE = 20;
-const community = {
+const LIBRARY_PAGE = 20;
+const ATTEMPT_LIMIT = 25;
+const library = {
     sort: 'new',
-    rows: [],
+    rows: [],                  // map rows from the server (built-in rows included, for play counts)
     loaded: false,
     loading: false,
     done: false,
     error: '',
     seq: 0,
-    linked: null,              // map opened from a ?map= link, shown first
+    linked: null,              // shared map opened from a ?map= link
     notes: new Map(),          // map id -> notes, so replays don't refetch
 };
 const sharedSigs = new Set();  // maps shared from this page, so Share isn't offered twice
+const attempts = store.get('attempts', {});   // chart id -> recent runs, newest first
+const detail = { key: null, lb: [], lbLoading: false, lbError: '', lbSeq: 0 };
 
 function notesSig(notes) {
     return (notes || []).map((n) => `${n.lane}:${Math.round(n.time)}`).join(',');
 }
 
-function setTab(name, focus = false) {
-    const isCommunity = name === 'community';
-    const tb = $('tab-builtin');
-    const tc = $('tab-community');
-    tb.setAttribute('aria-selected', String(!isCommunity));
-    tc.setAttribute('aria-selected', String(isCommunity));
-    tb.tabIndex = isCommunity ? -1 : 0;
-    tc.tabIndex = isCommunity ? 0 : -1;
-    $('panel-builtin').hidden = isCommunity;
-    $('panel-community').hidden = !isCommunity;
-    if (focus) (isCommunity ? tc : tb).focus();
-    store.set('tab', name);
-    if (isCommunity && !community.loaded && !community.loading) loadCommunity(true);
-}
+function plural(n, word) { return `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`; }
 
-$('tab-builtin').addEventListener('click', () => setTab('builtin'));
-$('tab-community').addEventListener('click', () => setTab('community'));
-document.querySelector('.tabs').addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') {
-        e.preventDefault();
-        const toCommunity = e.key === 'End' || (e.key !== 'Home' && $('tab-builtin').getAttribute('aria-selected') === 'true');
-        setTab(toCommunity ? 'community' : 'builtin', true);
-    }
-});
+const dateFormat = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
-for (const btn of document.querySelectorAll('.seg')) {
-    btn.addEventListener('click', () => {
-        if (community.sort === btn.dataset.sort) return;
-        community.sort = btn.dataset.sort;
-        for (const b of document.querySelectorAll('.seg')) b.setAttribute('aria-pressed', String(b === btn));
-        loadCommunity(true);
-    });
-}
-$('community-refresh').addEventListener('click', () => loadCommunity(true));
-$('community-more').addEventListener('click', () => loadCommunity(false));
+// ---------- Entries: one shape for built-in and shared maps ----------
 
-async function loadCommunity(reset) {
-    if (!online.configured) { renderCommunity(); return; }
-    if (!reset && community.loading) return;
-    const seq = ++community.seq;
-    if (reset) { community.rows = []; community.done = false; }
-    community.loading = true;
-    community.error = '';
-    renderCommunity();
-    try {
-        const rows = await online.listMaps({ sort: community.sort, limit: COMMUNITY_PAGE, offset: community.rows.length });
-        if (seq !== community.seq) return;              // a newer request replaced this one
-        for (const r of rows) if (!community.rows.some((x) => x.id === r.id)) community.rows.push(r);
-        community.done = rows.length < COMMUNITY_PAGE;
-        community.loaded = true;
-    } catch (err) {
-        if (seq !== community.seq) return;
-        community.error = err.message;
-    } finally {
-        if (seq === community.seq) {
-            community.loading = false;
-            renderCommunity();
-        }
-    }
-}
-
-function renderCommunity() {
-    const list = $('community-list');
-    const status = $('community-status');
-    const more = $('community-more');
-    list.innerHTML = '';
-    if (!online.configured) {
-        status.textContent = 'Online maps aren’t set up yet. Add your Supabase key to supabase-config.js.';
-        more.hidden = true;
-        $('community-refresh').hidden = true;
-        return;
-    }
-    const rows = community.linked
-        ? [community.linked, ...community.rows.filter((r) => r.id !== community.linked.id)]
-        : community.rows;
-    for (const row of rows) list.appendChild(communityRow(row, row === community.linked));
-
-    if (community.loading) status.textContent = 'Loading maps…';
-    else if (community.error) status.textContent = community.error;
-    else if (community.loaded && !rows.length) status.textContent = 'No one has shared a map yet. Record one, then choose Share online.';
-    else status.textContent = '';
-    more.hidden = community.done || community.loading || !!community.error || !community.rows.length;
-}
-
-function communityChart(row) {
+function builtinEntry(chart) {
+    const row = library.rows.find((r) => r.id === chart.onlineId);
+    const notes = chartData.get(chart.id);
     return {
-        id: 'community:' + row.id,
+        key: chart.id,
+        onlineId: chart.onlineId,
+        builtin: true,
+        chart,
+        title: chart.title,
+        level: chart.level,
+        accent: LANE_COLORS[chart.accent],
+        noteCount: notes ? notes.length : 0,
+        durationMs: notes && notes.length ? notes[notes.length - 1].time - notes[0].time : 0,
+        plays: row ? Number(row.plays) || 0 : null,
+        available: !!(notes && notes.length),
+    };
+}
+
+function sharedEntry(row) {
+    let h = 0;
+    for (const c of row.id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    return {
+        key: 'community:' + row.id,
         onlineId: row.id,
-        community: true,
-        song: row.song,
+        builtin: false,
+        row,
         title: row.title,
-        level: `by ${row.author}`,
+        level: null,
+        author: row.author,
+        accent: LANE_COLORS[h % LANE_COUNT],
+        noteCount: Number(row.note_count) || 0,
+        durationMs: Number(row.duration_ms) || 0,
+        plays: Number(row.plays) || 0,
+        createdAt: row.created_at,
+        owned: online.ownsMap(row.id),
+        available: Object.prototype.hasOwnProperty.call(SONGS, row.song),
+    };
+}
+
+function libraryEntries() {
+    const builtinIds = new Set(CHARTS.map((c) => c.onlineId));
+    const shared = library.rows.filter((r) => !builtinIds.has(r.id));
+    const linked = library.linked;
+    if (linked && !builtinIds.has(linked.id) && !shared.some((r) => r.id === linked.id)) shared.unshift(linked);
+    return CHARTS.map(builtinEntry).concat(shared.map(sharedEntry));
+}
+
+function findEntry(key) { return libraryEntries().find((e) => e.key === key) || null; }
+
+function entryChart(entry) {
+    if (entry.builtin) return entry.chart;
+    return {
+        id: entry.key,
+        onlineId: entry.onlineId,
+        community: true,
+        song: entry.row.song,
+        title: entry.title,
+        level: `by ${entry.author}`,
         offset: 0,
     };
 }
 
-function communityRow(row, linked) {
-    const li = document.createElement('li');
-    if (linked) li.classList.add('linked');
-    const owned = online.ownsMap(row.id);
-    const playable = Object.prototype.hasOwnProperty.call(SONGS, row.song);
+function entryMeta(entry, long = false) {
+    const parts = [];
+    if (entry.builtin) parts.push(long ? 'Built-in map' : 'Built-in');
+    else parts.push(`by ${entry.owned ? 'you' : entry.author}`);
+    if (!entry.available) {
+        parts.push(entry.builtin ? 'map file missing' : 'needs a song this version of the game doesn’t have');
+        return parts.join(', ');
+    }
+    parts.push(`${plural(entry.noteCount, 'note')} in ${formatDuration(entry.durationMs)}`);
+    if (entry.plays !== null) parts.push(plural(entry.plays, 'play'));
+    if (long && entry.createdAt) parts.push(`shared ${dateFormat.format(new Date(entry.createdAt))}`);
+    return parts.join(', ');
+}
 
+// ---------- Library list ----------
+
+for (const btn of document.querySelectorAll('.seg')) {
+    btn.addEventListener('click', () => {
+        if (library.sort === btn.dataset.sort) return;
+        library.sort = btn.dataset.sort;
+        for (const b of document.querySelectorAll('.seg')) b.setAttribute('aria-pressed', String(b === btn));
+        loadLibrary(true);
+    });
+}
+$('library-refresh').addEventListener('click', () => loadLibrary(true));
+$('library-more').addEventListener('click', () => loadLibrary(false));
+
+async function loadLibrary(reset) {
+    if (!online.configured) { renderLibrary(); return; }
+    if (!reset && library.loading) return;
+    const seq = ++library.seq;
+    if (reset) { library.rows = []; library.done = false; }
+    library.loading = true;
+    library.error = '';
+    renderLibrary();
+    try {
+        const rows = await online.listMaps({ sort: library.sort, limit: LIBRARY_PAGE, offset: library.rows.length });
+        if (seq !== library.seq) return;              // a newer request replaced this one
+        for (const r of rows) if (!library.rows.some((x) => x.id === r.id)) library.rows.push(r);
+        library.done = rows.length < LIBRARY_PAGE;
+        library.loaded = true;
+    } catch (err) {
+        if (seq !== library.seq) return;
+        library.error = err.message;
+    } finally {
+        if (seq === library.seq) {
+            library.loading = false;
+            renderLibrary();
+            if (detail.key) renderDetail();
+        }
+    }
+}
+
+function renderLibrary() {
+    const list = $('library-list');
+    const status = $('library-status');
+    list.innerHTML = '';
+    const entries = libraryEntries();
+    for (const entry of entries) list.appendChild(libraryRow(entry));
+
+    const sharedCount = entries.filter((e) => !e.builtin).length;
+    if (!online.configured) status.textContent = 'Shared maps and leaderboards aren’t set up yet. Add your Supabase key to supabase-config.js.';
+    else if (library.loading) status.textContent = 'Loading shared maps…';
+    else if (library.error) status.textContent = library.error;
+    else if (library.loaded && !sharedCount) status.textContent = 'No one has shared a map yet. Record one, then choose Share online.';
+    else status.textContent = '';
+    $('library-more').hidden = !online.configured || library.done || library.loading || !!library.error || !library.rows.length;
+    $('library-refresh').hidden = !online.configured;
+}
+
+function libraryRow(entry) {
+    const li = document.createElement('li');
+    if (library.linked && entry.onlineId === library.linked.id) li.classList.add('linked');
     const btn = document.createElement('button');
     btn.className = 'chart';
-    let h = 0;
-    for (const c of row.id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-    btn.style.setProperty('--accent', LANE_COLORS[h % LANE_COUNT]);
+    btn.dataset.key = entry.key;
+    btn.style.setProperty('--accent', entry.accent);
 
     const name = document.createElement('span');
     name.className = 'chart-name';
-    if (linked) {
+    if (li.classList.contains('linked')) {
         const tag = document.createElement('span');
         tag.className = 'chart-tag';
         tag.textContent = 'Shared with you';
         name.appendChild(tag);
     }
-    name.append(row.title);
+    name.append(entry.title);
+    if (entry.level) {
+        const level = document.createElement('span');
+        level.className = 'chart-level';
+        level.textContent = entry.level;
+        name.appendChild(level);
+    }
 
     const meta = document.createElement('span');
     meta.className = 'chart-meta';
-    const plays = Number(row.plays) || 0;
-    meta.textContent = playable
-        ? `by ${owned ? 'you' : row.author}, ${row.note_count} notes in ${formatDuration(row.duration_ms)}, ${plays} play${plays === 1 ? '' : 's'}`
-        : 'Needs a song this version of the game doesn’t have';
-    btn.disabled = !playable;
+    meta.textContent = entryMeta(entry);
 
     const best = document.createElement('span');
     best.className = 'chart-best';
-    const b = bests['community:' + row.id];
+    const b = bests[entry.key];
     if (b) {
         const strong = document.createElement('strong');
         strong.textContent = b.grade;
@@ -1522,88 +1533,350 @@ function communityRow(row, linked) {
     }
 
     btn.append(name, meta, best);
-    btn.addEventListener('click', () => playCommunity(row, btn));
+    btn.addEventListener('click', () => openDetail(entry.key));
     li.appendChild(btn);
+    return li;
+}
 
-    if (owned) {
-        li.classList.add('has-action');
-        const del = document.createElement('button');
-        del.className = 'btn btn-quiet btn-small row-action';
-        del.textContent = 'Delete';
-        del.setAttribute('aria-label', `Delete ${row.title}`);
-        del.addEventListener('click', () => deleteCommunityMap(row, del));
-        li.appendChild(del);
+function forgetSharedMap(id) {
+    library.rows = library.rows.filter((r) => r.id !== id);
+    if (library.linked && library.linked.id === id) library.linked = null;
+    library.notes.delete(id);
+    if (detail.key === 'community:' + id) closeDetail();
+    else renderLibrary();
+}
+
+// ---------- Song page ----------
+
+function openDetail(key, { focus = true } = {}) {
+    if (!findEntry(key)) return;
+    if (detail.key !== key) {
+        detail.lb = [];
+        detail.lbError = '';
+        detail.lbSeq++;
+        detail.lbLoading = false;
+    }
+    detail.key = key;
+    $('library-view').hidden = true;
+    $('detail-view').hidden = false;
+    $('menu').scrollTop = 0;
+    renderDetail();
+    loadLeaderboard();
+    if (focus) $('detail-start').focus();
+}
+
+function closeDetail() {
+    const key = detail.key;
+    detail.key = null;
+    detail.lbSeq++;
+    $('detail-view').hidden = true;
+    $('library-view').hidden = false;
+    renderLibrary();
+    const row = key && document.querySelector(`#library-list .chart[data-key="${CSS.escape(key)}"]`);
+    if (row) row.focus();
+}
+
+function renderDetail() {
+    const entry = findEntry(detail.key);
+    if (!entry) { closeDetail(); return; }
+
+    const title = $('detail-title');
+    title.textContent = entry.title;
+    title.style.setProperty('--accent', entry.accent);
+    if (entry.level) {
+        const level = document.createElement('span');
+        level.className = 'chart-level';
+        level.textContent = entry.level;
+        title.appendChild(level);
+    }
+    $('detail-meta').textContent = entryMeta(entry, true);
+
+    const start = $('detail-start');
+    start.disabled = !entry.available || starting;
+    if (!starting) start.textContent = 'Start';
+
+    $('detail-speed').value = settings.speed;
+    $('detail-speed-out').textContent = Number(settings.speed).toFixed(1);
+    $('detail-timing-value').textContent = formatMs(mapTiming[entry.key] || 0);
+
+    $('detail-copy').hidden = !(online.configured && entry.onlineId);
+    const del = $('detail-delete');
+    del.hidden = !entry.owned;
+    disarmDelete();
+
+    renderLeaderboard();
+    renderAttempts();
+}
+
+function boardRow(cells, className) {
+    const li = document.createElement('li');
+    li.className = 'board-row' + (className ? ' ' + className : '');
+    for (const [cls, text] of cells) {
+        const span = document.createElement('span');
+        span.className = cls;
+        span.textContent = text;
+        li.appendChild(span);
     }
     return li;
 }
 
-async function playCommunity(row, btn) {
-    if (starting) return;
-    let notes = community.notes.get(row.id) || (row.notes && row.notes.length ? row.notes : null);
-    if (!notes) {
-        const meta = btn.querySelector('.chart-meta');
-        const before = meta.textContent;
-        btn.disabled = true;
-        meta.textContent = 'Loading map…';
-        try {
-            const full = await online.getMap(row.id);
-            if (!full) {
-                toast('This map has been deleted.', true);
-                forgetCommunityRow(row.id);
-                return;
-            }
-            notes = full.notes;
-        } catch (err) {
-            toast(err.message, true);
-            return;
-        } finally {
-            if (btn.isConnected) { btn.disabled = false; meta.textContent = before; }
-        }
-    }
-    community.notes.set(row.id, notes);
-    startPlay(communityChart(row), notes, btn);
-}
-
-function forgetCommunityRow(id) {
-    community.rows = community.rows.filter((r) => r.id !== id);
-    if (community.linked && community.linked.id === id) community.linked = null;
-    community.notes.delete(id);
-    renderCommunity();
-}
-
-async function deleteCommunityMap(row, btn) {
-    if (btn.dataset.armed !== 'true') {
-        btn.dataset.armed = 'true';
-        btn.textContent = 'Delete?';
-        btn.classList.add('btn-danger');
-        setTimeout(() => {
-            if (btn.isConnected && btn.dataset.armed === 'true') {
-                btn.dataset.armed = '';
-                btn.textContent = 'Delete';
-                btn.classList.remove('btn-danger');
-            }
-        }, 4000);
+function renderLeaderboard() {
+    const ol = $('leaderboard');
+    const status = $('lb-status');
+    ol.innerHTML = '';
+    const entry = findEntry(detail.key);
+    const enabled = online.configured && entry && entry.onlineId;
+    $('lb-refresh').hidden = !enabled;
+    if (!enabled) {
+        status.textContent = 'Leaderboards need online maps. Add your Supabase key to supabase-config.js.';
         return;
     }
-    btn.disabled = true;
+    let prevRank = 0;
+    for (const r of detail.lb) {
+        if (prevRank && Number(r.rank) > prevRank + 1) ol.appendChild(boardRow([['gap', '…']], 'board-gap'));
+        prevRank = Number(r.rank);
+        const li = boardRow([
+            ['rank', `#${r.rank}`],
+            ['who', r.mine ? `${r.player_name} (you)` : r.player_name],
+            ['g', r.grade],
+            ['num', Number(r.score).toLocaleString()],
+            ['acc', `${Number(r.accuracy).toFixed(2)}%`],
+        ], r.mine ? 'mine' : '');
+        li.querySelector('.g').dataset.grade = r.grade;
+        ol.appendChild(li);
+    }
+    if (detail.lbLoading && !detail.lb.length) status.textContent = 'Loading leaderboard…';
+    else if (detail.lbError) status.textContent = detail.lbError;
+    else if (!detail.lb.length) status.textContent = 'No scores yet. Finish a run to set the first one.';
+    else status.textContent = '';
+}
+
+async function loadLeaderboard() {
+    const entry = findEntry(detail.key);
+    if (!online.configured || !entry || !entry.onlineId) { renderLeaderboard(); return; }
+    const seq = ++detail.lbSeq;
+    detail.lbLoading = true;
+    detail.lbError = '';
+    renderLeaderboard();
     try {
-        const deleted = await online.deleteMap(row.id);
-        toast(deleted ? `Deleted “${row.title}”.` : 'That map was already deleted.');
-        forgetCommunityRow(row.id);
+        const rows = await online.getLeaderboard(entry.onlineId, 10);
+        if (seq !== detail.lbSeq) return;
+        detail.lb = rows;
     } catch (err) {
-        btn.disabled = false;
-        toast(err.message, true);
+        if (seq !== detail.lbSeq) return;
+        detail.lbError = err.message;
+    } finally {
+        if (seq === detail.lbSeq) {
+            detail.lbLoading = false;
+            renderLeaderboard();
+        }
     }
 }
 
-function countCommunityPlay(id) {
-    online.countPlay(id);
-    for (const r of [...community.rows, community.linked]) if (r && r.id === id) r.plays = (Number(r.plays) || 0) + 1;
+function renderAttempts() {
+    const ol = $('attempts');
+    const status = $('attempts-status');
+    ol.innerHTML = '';
+    const list = attempts[detail.key] || [];
+    const bestScore = Math.max(-1, ...list.map((a) => a.score));
+    let markedBest = false;
+    for (const a of list.slice(0, 10)) {
+        const isBest = !markedBest && a.score === bestScore;
+        if (isBest) markedBest = true;
+        const li = boardRow([
+            ['when', dateFormat.format(new Date(a.at))],
+            ['g', a.grade],
+            ['num', Math.round(a.score).toLocaleString()],
+            ['acc', `${Number(a.acc).toFixed(2)}%`],
+        ], isBest ? 'best' : '');
+        li.querySelector('.g').dataset.grade = a.grade;
+        if (isBest) li.title = 'Your best run';
+        ol.appendChild(li);
+    }
+    const older = list.length > 10 ? ` Showing your 10 latest of ${list.length}.` : '';
+    status.textContent = list.length ? older.trim() : 'You haven’t played this map yet.';
+}
+
+function recordAttempt(chartId, run) {
+    const list = attempts[chartId] || (attempts[chartId] = []);
+    list.unshift(run);
+    if (list.length > ATTEMPT_LIMIT) list.length = ATTEMPT_LIMIT;
+    store.set('attempts', attempts);
+}
+
+$('detail-back').addEventListener('click', closeDetail);
+$('lb-refresh').addEventListener('click', loadLeaderboard);
+
+$('detail-start').addEventListener('click', async () => {
+    const btn = $('detail-start');
+    const entry = findEntry(detail.key);
+    if (starting || !entry || !entry.available) return;
+    let notes;
+    if (entry.builtin) {
+        notes = chartData.get(entry.key);
+    } else {
+        notes = library.notes.get(entry.onlineId) || (Array.isArray(entry.row.notes) && entry.row.notes.length ? entry.row.notes : null);
+        if (!notes) {
+            btn.disabled = true;
+            btn.textContent = 'Loading map…';
+            try {
+                const full = await online.getMap(entry.onlineId);
+                if (!full) {
+                    toast('This map has been deleted.', true);
+                    forgetSharedMap(entry.onlineId);
+                    return;
+                }
+                notes = full.notes;
+            } catch (err) {
+                toast(err.message, true);
+                return;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Start';
+            }
+            library.notes.set(entry.onlineId, notes);
+        }
+    }
+    startPlay(entryChart(entry), notes, btn);
+});
+
+$('detail-speed').addEventListener('input', () => {
+    settings.speed = Number($('detail-speed').value);
+    $('detail-speed-out').textContent = settings.speed.toFixed(1);
+    saveSettings();
+    syncSettingsUI();
+});
+
+function stepDetailTiming(delta) {
+    const key = detail.key;
+    if (!key) return;
+    mapTiming[key] = clamp((mapTiming[key] || 0) + delta, -2000, 2000);
+    store.set('mapTiming', mapTiming);
+    $('detail-timing-value').textContent = formatMs(mapTiming[key]);
+}
+$('detail-timing-minus').addEventListener('click', () => stepDetailTiming(-10));
+$('detail-timing-plus').addEventListener('click', () => stepDetailTiming(10));
+
+$('detail-copy').addEventListener('click', async () => {
+    const entry = findEntry(detail.key);
+    if (!entry) return;
+    const btn = $('detail-copy');
+    const link = online.mapLink(entry.onlineId);
+    try {
+        await navigator.clipboard.writeText(link);
+        btn.textContent = 'Link copied';
+    } catch {
+        toast(`Copy this link: ${link}`);
+    }
+    setTimeout(() => { btn.textContent = 'Copy link'; }, 2000);
+});
+
+function disarmDelete() {
+    const del = $('detail-delete');
+    del.dataset.armed = '';
+    del.textContent = 'Delete map';
+    del.classList.remove('btn-danger');
+    del.disabled = false;
+}
+$('detail-delete').addEventListener('click', async () => {
+    const del = $('detail-delete');
+    const entry = findEntry(detail.key);
+    if (!entry || !entry.owned) return;
+    if (del.dataset.armed !== 'true') {
+        del.dataset.armed = 'true';
+        del.textContent = 'Delete this map and its leaderboard?';
+        del.classList.add('btn-danger');
+        setTimeout(() => { if (del.dataset.armed === 'true') disarmDelete(); }, 5000);
+        return;
+    }
+    del.disabled = true;
+    try {
+        const deleted = await online.deleteMap(entry.onlineId);
+        toast(deleted ? `Deleted “${entry.title}”.` : 'That map was already deleted.');
+        forgetSharedMap(entry.onlineId);
+    } catch (err) {
+        disarmDelete();
+        toast(err.message, true);
+    }
+});
+
+// ---------- After a run: plays, attempts, leaderboard ----------
+
+function countLibraryPlay(id) {
+    online.countPlay && online.countPlay(id);
+    for (const r of [...library.rows, library.linked]) if (r && r.id === id) r.plays = (Number(r.plays) || 0) + 1;
+}
+
+let pendingPost = null;
+let postSeq = 0;
+
+function showPostForm(show) {
+    $('lb-name-form').hidden = !show;
+    if (show) $('lb-name').value = '';
+}
+
+async function postScore() {
+    const run = pendingPost;
+    if (!run) return;
+    const seq = ++postSeq;
+    const text = $('lb-post-text');
+    $('lb-retry').hidden = true;
+    const name = String(store.get('playerName', '') || '').trim();
+    if (!name) {
+        text.textContent = 'Add your name to post this score to the leaderboard.';
+        showPostForm(true);
+        return;
+    }
+    showPostForm(false);
+    text.textContent = 'Posting to the leaderboard…';
+    try {
+        const r = await online.submitScore({ mapId: run.mapId, name, score: run.score, maxCombo: run.maxCombo, counts: run.counts });
+        if (seq !== postSeq) return;
+        pendingPost = null;
+        const place = `#${r.rank} of ${r.total}`;
+        text.textContent = r.improved
+            ? (r.total === 1 ? 'Posted. You’re the first on this leaderboard.' : `New personal best, ranked ${place}.`)
+            : `Posted. Your best is still ${Number(r.best).toLocaleString()}, ranked ${place}.`;
+    } catch (err) {
+        if (seq !== postSeq) return;
+        text.textContent = err.message;
+        // Only offer a retry when trying again could help (connection or server trouble).
+        $('lb-retry').hidden = err.code === '22023';
+    }
+}
+
+$('lb-retry').addEventListener('click', postScore);
+$('lb-name-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = $('lb-name').value.trim();
+    if (!name) { $('lb-name').focus(); return; }
+    store.set('playerName', name.slice(0, 24));
+    syncSettingsUI();
+    postScore();
+});
+
+function afterLibraryRun(chart, run) {
+    const box = $('lb-post');
+    pendingPost = null;
+    postSeq++;
+    showPostForm(false);
+    $('lb-retry').hidden = true;
+    if (!chart.onlineId) { box.hidden = true; return; }
+    recordAttempt(chart.id, run);
+    countLibraryPlay(chart.onlineId);
+    box.hidden = false;
+    if (!online.configured) {
+        $('lb-post-text').textContent = 'Saved to your attempts. Leaderboards need online maps to be set up.';
+        return;
+    }
+    pendingPost = { mapId: chart.onlineId, score: run.score, maxCombo: run.combo, counts: run.counts };
+    postScore();
 }
 
 async function openSharedLink() {
     const id = new URLSearchParams(location.search).get('map') || '';
-    setTab('community');
+    const builtin = CHARTS.find((c) => c.onlineId === id);
+    if (builtin) { openDetail(builtin.id, { focus: false }); return; }
     if (!online.configured) return;
     if (!online.UUID_RE.test(id)) {
         toast('That map link is incomplete. Ask for the link again.', true);
@@ -1613,11 +1886,12 @@ async function openSharedLink() {
         const row = await online.getMap(id);
         if (!row) {
             toast('That shared map was deleted.', true);
-        } else {
-            community.linked = row;
-            community.notes.set(row.id, row.notes);
-            renderCommunity();
+            return;
         }
+        library.linked = row;
+        library.notes.set(row.id, row.notes);
+        renderLibrary();
+        if (state.screen === 'menu' || state.screen === 'loading') openDetail('community:' + row.id, { focus: false });
     } catch (err) {
         toast(err.message, true);
     }
@@ -1666,10 +1940,12 @@ $('share-form').addEventListener('submit', async (e) => {
         const row = await online.shareMap({ title, author, song: job.song, notes: job.notes });
         store.set('playerName', author);
         sharedSigs.add(notesSig(job.notes));
-        community.notes.set(row.id, job.notes.slice());
-        if (community.loaded && community.sort === 'new') community.rows.unshift(row);
-        else community.loaded = false;           // reload next time the tab opens
-        renderCommunity();
+        library.notes.set(row.id, job.notes.slice());
+        if (library.loaded && library.sort === 'new') {
+            const firstShared = library.rows.findIndex((r) => !r.featured);
+            library.rows.splice(firstShared === -1 ? library.rows.length : firstShared, 0, row);
+        }
+        renderLibrary();
         if (job.onShared) job.onShared(row);
         $('share-link').value = online.mapLink(row.id);
         $('share-edit').hidden = true;
@@ -1803,6 +2079,7 @@ function syncSettingsUI() {
     volumeInput.value = settings.volume;
     $('set-volume-out').textContent = `${settings.volume}%`;
     ghostInput.checked = !!settings.ghostPenalty;
+    if (document.activeElement !== $('set-name')) $('set-name').value = store.get('playerName', '') || '';
 }
 
 speedInput.addEventListener('input', () => { settings.speed = Number(speedInput.value); saveSettings(); syncSettingsUI(); });
@@ -1818,6 +2095,7 @@ offsetInput.addEventListener('input', () => {
 });
 volumeInput.addEventListener('input', () => { settings.volume = Number(volumeInput.value); audio.applyVolume(); saveSettings(); syncSettingsUI(); });
 ghostInput.addEventListener('change', () => { settings.ghostPenalty = ghostInput.checked; saveSettings(); });
+$('set-name').addEventListener('change', () => { store.set('playerName', $('set-name').value.trim().slice(0, 24)); });
 
 function openSettings() {
     rebindLane = -1;
@@ -1871,10 +2149,9 @@ async function boot() {
 
     await labelKeysForLayout();
     renderMenu();
-    renderCommunity();
-    if (new URLSearchParams(location.search).has('map')) openSharedLink();   // loads in the background
-    else setTab(store.get('tab', 'builtin') === 'community' ? 'community' : 'builtin');
     setScreen('menu');
+    loadLibrary(true);                                                        // shared maps load in the background
+    if (new URLSearchParams(location.search).has('map')) openSharedLink();
     if (failed) toast(loadErrorMessage(results.find((r) => r.status === 'rejected').reason), true);
 }
 

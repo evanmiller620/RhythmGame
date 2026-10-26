@@ -36,29 +36,36 @@ The built-in maps in `assets/` were made with the first version of the game. It 
 
 If a map feels early or late, adjust its timing while you play with the **−** and **=** keys (hold Shift for 50 ms steps), or with the Map timing buttons in the pause menu. Each map remembers its own setting, and the results screen suggests one based on your hits.
 
-## Community maps (online)
+## Library, leaderboards and shared maps
 
-Players can share the maps they record, and anyone can browse and play them under **Community** on the song-select screen.
+The song-select screen is one **Library**: the two built-in Night maps are pinned at the top, followed by maps other players have shared (sort by newest or most played).
 
-- **Share:** after recording (or after playing an imported map), choose **Share online**, then give it a title and your name. You get a link that opens the map directly (`?map=<id>`).
-- **Browse:** sort by newest or most played. Plays are counted when someone finishes a map.
-- **Delete:** only the browser that shared a map can delete it (**Delete** on the row). Clearing your browser's site data loses that ability. As the project owner, you can delete any map from the Supabase dashboard.
+Click a map to open its page:
 
-Maps are stored in the Supabase project this repo shares with Coup. Everything is prefixed `rhythm_`, so nothing touches Coup's tables.
+- **Start** the map, after setting scroll speed and map timing for it.
+- **Leaderboard:** the top 10 players' best scores, plus your own place if you're further down. Every finished run is posted automatically. The first time, the results screen asks for a name (you can change it later in Settings).
+- **Your attempts:** your last runs on this map in this browser, with your best marked.
+- **Copy link** to send someone straight to the map (`?map=<id>`), and **Delete map** for maps you shared.
+
+Sharing works as before: after recording (or after playing an imported map), choose **Share online**. Only the browser that shared a map can delete it, and deleting a map also removes its leaderboard. As the project owner, you can delete any map or score from the Supabase dashboard.
+
+Everything is stored in the Supabase project this repo shares with Coup, under names prefixed `rhythm_`, so nothing touches Coup's tables.
 
 ### One-time setup
 
-1. In the Supabase dashboard, open **SQL Editor**, paste the contents of `supabase/rhythm_schema.sql`, and run it once.
+1. In the Supabase dashboard, open **SQL Editor**, paste the contents of `supabase/rhythm_schema.sql`, and run it. It's safe to run again: if you ran an earlier version, running the new one upgrades it in place and keeps existing shared maps. Notices like "already exists, skipping" are expected.
 2. Open **Project Settings → API** and copy the **anon public** (or **publishable**) key.
 3. Paste it into `supabase-config.js` as `anonKey`. This key is meant to be public, because row-level security decides what it can do. Never use the `service_role` / secret key here.
 
-Without a key, the game runs normally and the Community tab explains that online maps aren't set up.
+Without a key, the game still works: the Library shows the built-in maps, and your attempts are saved in the browser, but there are no shared maps or leaderboards.
 
 ### What the server allows
 
-Anyone can read maps and share new ones. Nobody can edit a map after sharing it, change its play count except through `rhythm_count_play()`, or delete a map without the token held by the browser that shared it. Maps are checked on the server: 1–5000 notes, lanes 0–3, times 0–20 minutes, titles up to 60 characters, names up to 24.
+- Anyone can read maps and leaderboards and share new maps. Nobody can edit a map after sharing it.
+- Scores can only be posted through `rhythm_submit_score()`, which checks them against the map: the judgments must add up to the map's notes, the combo can't exceed the hits, and the score must be possible for those judgments. The server works out accuracy and grade itself. Each player keeps only their best score per map, and player ids are never returned by the API.
+- Play counts only change through `rhythm_count_play()`. Maps can only be deleted with the token held by the browser that shared them, and the built-in maps can't be deleted at all.
 
-There is no sign-in and no per-player rate limit, so anyone could flood the list with maps. If that becomes a problem, delete the rows in the dashboard. Adding Supabase Auth or a rate-limiting Edge Function would be the next step.
+There is no sign-in, so a determined player could still post a made-up score that passes these checks, or flood the map list. Remove bad rows in the dashboard. Adding Supabase Auth would be the next step if that becomes a problem.
 
 ## Running locally
 
@@ -77,8 +84,8 @@ Then open the address it prints.
 - `index.html` – page structure and screens
 - `rythm.js` – game engine (audio clock, judging, rendering, recording, settings)
 - `rythm.css` – styles
-- `online.js` – client for the community map server (Supabase REST API, no SDK)
+- `online.js` – client for shared maps and leaderboards (Supabase REST API, no SDK)
 - `supabase-config.js` – Supabase URL and public key
-- `supabase/rhythm_schema.sql` – tables, security rules and functions for community maps
+- `supabase/rhythm_schema.sql` – tables, security rules and functions for shared maps and leaderboards (safe to re-run)
 - `night.mp3` – the song
 - `assets/` – beatmaps, background image, and bundled fonts (Unbounded and DM Sans, SIL Open Font License)

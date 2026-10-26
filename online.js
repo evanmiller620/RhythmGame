@@ -14,8 +14,9 @@ const baseUrl = String(cfg.url || '').trim().replace(/\/+$/, '');
 const key = String(cfg.anonKey || '').trim();
 const configured = /^https?:\/\/[^/\s]+$/.test(baseUrl) && key.length >= 20;
 
-const LIST_COLUMNS = 'id,title,author,song,note_count,duration_ms,plays,created_at';
+const LIST_COLUMNS = 'id,title,author,song,note_count,duration_ms,plays,created_at,featured';
 const OWNED_KEY = 'rhythm.ownedMaps';      // map id -> secret token, kept in this browser only
+const PLAYER_KEY = 'rhythm.playerId';      // random id that ties leaderboard scores to this browser
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LIMITS = { title: 60, author: 24, notes: 5000, timeMs: 1200000 };
 
@@ -64,6 +65,10 @@ function describeError(status, data) {
     const detail = (data && (data.message || data.msg || data.error)) || '';
     if (code === '42P01' || code === 'PGRST205' || code === 'PGRST202' || /does not exist|schema cache/i.test(detail)) {
         return new OnlineError('Online maps aren’t set up on the server yet. Run supabase/rhythm_schema.sql in the Supabase SQL Editor.', status, code);
+    }
+    if (code === '22023') {
+        if (/unknown map/.test(detail)) return new OnlineError('This map was deleted, so scores can’t be posted to it anymore.', status, code);
+        return new OnlineError(`The server didn’t accept this score (${detail || 'invalid'}).`, status, code);
     }
     if (code === '23514' || code === '22P02' || code === '23502') {
         return new OnlineError('The server rejected this map because some of its data is invalid.', status, code);
@@ -121,7 +126,8 @@ function decodeNotes(rows) {
 }
 
 async function listMaps({ sort = 'new', limit = 20, offset = 0 } = {}) {
-    const order = sort === 'popular' ? 'plays.desc,created_at.desc' : 'created_at.desc';
+    // Featured (built-in) maps always come first.
+    const order = sort === 'popular' ? 'featured.desc,plays.desc,created_at.desc' : 'featured.desc,created_at.desc';
     const q = new URLSearchParams({ select: LIST_COLUMNS, order, limit: String(limit), offset: String(offset) });
     return (await request(`/rest/v1/rhythm_maps?${q}`)) || [];
 }
@@ -182,6 +188,47 @@ function countPlay(id) {
     request('/rest/v1/rpc/rhythm_count_play', { method: 'POST', body: { p_id: id } }).catch(() => {});
 }
 
+// ---------- Leaderboards ----------
+
+function playerId() {
+    let id = null;
+    try { id = localStorage.getItem(PLAYER_KEY); } catch { /* ignore */ }
+    if (!id || !UUID_RE.test(id)) {
+        id = (crypto.randomUUID && crypto.randomUUID()) ||
+            '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
+                (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16));
+        try { localStorage.setItem(PLAYER_KEY, id); } catch { /* ignore */ }
+    }
+    return id;
+}
+
+// Returns { rank, total, best, improved }.
+async function submitScore({ mapId, name, score, maxCombo, counts }) {
+    return request('/rest/v1/rpc/rhythm_submit_score', {
+        method: 'POST',
+        body: {
+            p_map_id: mapId,
+            p_player_id: playerId(),
+            p_player_name: String(name || '').trim().slice(0, LIMITS.author),
+            p_score: Math.round(score),
+            p_max_combo: maxCombo,
+            p_perfect: counts.perfect,
+            p_great: counts.great,
+            p_good: counts.good,
+            p_miss: counts.miss,
+        },
+    });
+}
+
+// Top scores plus this player's own row; rows have { rank, player_name, score, accuracy, grade, max_combo, achieved_at, mine }.
+async function getLeaderboard(mapId, limit = 10) {
+    if (!UUID_RE.test(mapId)) return [];
+    return (await request('/rest/v1/rpc/rhythm_leaderboard', {
+        method: 'POST',
+        body: { p_map_id: mapId, p_player_id: playerId(), p_limit: limit },
+    })) || [];
+}
+
 function ownsMap(id) { return Object.prototype.hasOwnProperty.call(ownedTokens(), id); }
 
 function mapLink(id) {
@@ -192,6 +239,10 @@ function mapLink(id) {
     return u.toString();
 }
 
-return { configured, LIMITS, UUID_RE, OnlineError, listMaps, getMap, shareMap, deleteMap, countPlay, ownsMap, mapLink };
+return {
+    configured, LIMITS, UUID_RE, OnlineError,
+    listMaps, getMap, shareMap, deleteMap, countPlay, ownsMap, mapLink,
+    submitScore, getLeaderboard, playerId,
+};
 
 })();

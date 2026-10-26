@@ -20,32 +20,76 @@
             <div class="lane-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
         </header>
 
-        <div class="tabs" role="tablist" aria-label="Maps">
-            <button id="tab-builtin" class="tab" role="tab" aria-selected="true" aria-controls="panel-builtin">Built-in</button>
-            <button id="tab-community" class="tab" role="tab" aria-selected="false" aria-controls="panel-community" tabindex="-1">Community</button>
-        </div>
-
-        <div id="panel-builtin" class="tab-panel" role="tabpanel" aria-labelledby="tab-builtin">
-            <ul id="chart-list" class="chart-list"></ul>
-        </div>
-
-        <div id="panel-community" class="tab-panel" role="tabpanel" aria-labelledby="tab-community" hidden>
-            <div class="community-bar">
+        <!-- Library: every playable map -->
+        <div id="library-view" class="menu-view">
+            <div class="library-head">
+                <h2 class="library-title">Library</h2>
                 <div class="segmented" role="group" aria-label="Sort maps">
                     <button class="seg" data-sort="new" aria-pressed="true">Newest</button>
                     <button class="seg" data-sort="popular" aria-pressed="false">Most played</button>
                 </div>
-                <button id="community-refresh" class="btn btn-quiet btn-small">Refresh</button>
             </div>
-            <ul id="community-list" class="chart-list"></ul>
-            <p id="community-status" class="community-status muted small" aria-live="polite"></p>
-            <button id="community-more" class="btn btn-quiet more-btn" hidden>Show more</button>
+            <ul id="library-list" class="chart-list"></ul>
+            <p id="library-status" class="community-status muted small" aria-live="polite"></p>
+            <div class="library-tools">
+                <button id="library-more" class="btn btn-quiet more-btn" hidden>Show more</button>
+                <button id="library-refresh" class="btn btn-quiet btn-small">Refresh</button>
+            </div>
+            <div class="menu-actions">
+                <button id="import-btn" class="btn">Import beatmap</button>
+                <button id="record-btn" class="btn">Record beatmap</button>
+                <input type="file" id="load-input" accept=".csv,text/csv" hidden>
+            </div>
         </div>
 
-        <div class="menu-actions">
-            <button id="import-btn" class="btn">Import beatmap</button>
-            <button id="record-btn" class="btn">Record beatmap</button>
-            <input type="file" id="load-input" accept=".csv,text/csv" hidden>
+        <!-- Song page: start options, leaderboard, past attempts -->
+        <div id="detail-view" class="menu-view detail" aria-labelledby="detail-title" hidden>
+            <button id="detail-back" class="btn btn-quiet back-btn">
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Library
+            </button>
+            <header class="detail-head">
+                <h2 id="detail-title" class="detail-title"></h2>
+                <p id="detail-meta" class="muted"></p>
+            </header>
+
+            <button id="detail-start" class="btn btn-primary btn-start">Start</button>
+
+            <div class="detail-options">
+                <label class="setting">
+                    <span>Scroll speed</span>
+                    <input id="detail-speed" type="range" min="2" max="14" step="0.5">
+                    <output id="detail-speed-out"></output>
+                </label>
+                <div class="setting timing-setting">
+                    <span>Map timing</span>
+                    <div class="stepper">
+                        <button id="detail-timing-minus" class="btn btn-small" aria-label="Make notes 10 ms earlier">−</button>
+                        <output id="detail-timing-value">0 ms</output>
+                        <button id="detail-timing-plus" class="btn btn-small" aria-label="Make notes 10 ms later">+</button>
+                    </div>
+                </div>
+            </div>
+
+            <section class="detail-section" aria-labelledby="lb-title">
+                <div class="section-head">
+                    <h3 id="lb-title">Leaderboard</h3>
+                    <button id="lb-refresh" class="btn btn-quiet btn-small">Refresh</button>
+                </div>
+                <ol id="leaderboard" class="board"></ol>
+                <p id="lb-status" class="muted small board-status" aria-live="polite"></p>
+            </section>
+
+            <section class="detail-section" aria-labelledby="attempts-title">
+                <div class="section-head"><h3 id="attempts-title">Your attempts</h3></div>
+                <ol id="attempts" class="board"></ol>
+                <p id="attempts-status" class="muted small board-status"></p>
+            </section>
+
+            <div class="detail-actions">
+                <button id="detail-copy" class="btn btn-quiet btn-small" hidden>Copy link</button>
+                <button id="detail-delete" class="btn btn-quiet btn-small" hidden>Delete map</button>
+            </div>
         </div>
 
         <footer class="menu-footer">
@@ -125,6 +169,14 @@
                 <p id="offset-suggest-text"></p>
                 <button id="offset-apply" class="btn btn-small">Apply</button>
             </div>
+            <div id="lb-post" class="lb-post" hidden>
+                <p id="lb-post-text"></p>
+                <form id="lb-name-form" class="lb-name-form" hidden>
+                    <input id="lb-name" type="text" maxlength="24" placeholder="Your name" aria-label="Your name on leaderboards" autocomplete="nickname" spellcheck="false">
+                    <button class="btn btn-small btn-primary" type="submit">Post score</button>
+                </form>
+                <button id="lb-retry" class="btn btn-small" hidden>Try again</button>
+            </div>
             <div class="row">
                 <button id="retry-btn" class="btn btn-primary">Play again</button>
                 <button id="results-download" class="btn" hidden>Download beatmap</button>
@@ -156,6 +208,11 @@
                 <h2 id="settings-title">Settings</h2>
                 <button class="btn btn-quiet btn-small" value="close">Done</button>
             </div>
+
+            <label class="field settings-name">
+                <span>Name on leaderboards</span>
+                <input id="set-name" type="text" maxlength="24" autocomplete="nickname" spellcheck="false" placeholder="Shown next to your scores">
+            </label>
 
             <fieldset>
                 <legend>Keys</legend>
