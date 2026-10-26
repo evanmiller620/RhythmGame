@@ -2,39 +2,172 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rythm!!!!!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="A four-lane rhythm game. Play the built-in maps, import your own, or record a new beatmap.">
+    <meta name="theme-color" content="#121214">
+    <title>Rhythm</title>
+    <link rel="preload" href="assets/fonts/unbounded-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="assets/fonts/dm-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="rythm.css">
 </head>
-<body>
-    <div class="side-bar">
-        <div class="dropdown">
-            <button onclick="toggleDropdown()">Choose Song</button>
-            <div id="myDropdown" class="dropdown-content">
-                <button onclick="runSong(5)">music</button>
-                <button onclick="runSong(6)">music2</button>
-                <!-- <button onclick="runSong(0)">amogus</button>
-                <button onclick="runSong(1)">Song!</button>
-                <button onclick="runSong(2)">anothersong</button>
-                <button onclick="runSong(3)">ahhhhhhhh</button>
-                <button onclick="runSong(4)">insane</button> -->
+<body data-screen="loading">
+    <canvas id="playfield" aria-label="Playfield"></canvas>
+
+    <!-- Song select -->
+    <section id="menu" class="screen" aria-labelledby="wordmark">
+        <header class="brand">
+            <h1 id="wordmark">Rhythm</h1>
+            <div class="lane-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        </header>
+
+        <h2 class="section-title">Choose a map</h2>
+        <ul id="chart-list" class="chart-list"></ul>
+
+        <div class="menu-actions">
+            <button id="import-btn" class="btn">Import beatmap</button>
+            <button id="record-btn" class="btn">Record beatmap</button>
+            <input type="file" id="load-input" accept=".csv,text/csv" hidden>
+        </div>
+
+        <footer class="menu-footer">
+            <button id="settings-btn" class="btn btn-quiet">Settings</button>
+            <p class="key-hint">Play with <span id="key-hint-keys">A S K L</span>. Esc pauses.</p>
+        </footer>
+    </section>
+
+    <!-- In-game HUD -->
+    <div id="hud" class="hud" aria-live="off">
+        <div class="hud-left">
+            <button id="pause-btn" class="btn btn-icon" aria-label="Pause">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+            </button>
+            <div class="hud-song">
+                <span id="hud-title" class="hud-title"></span>
+                <span id="hud-sub" class="hud-sub"></span>
             </div>
         </div>
-        
-        <button id="playback-btn">Import Beatmap</button>
-        <input type="file" id="load-input" style="display: none;" accept=".csv">
-        <button id="record-btn">Record Beatmap</button>
-        <div></div>
-        <a>
-            remap keys
-        </a>
-        <div id="keys">
-            <button id="0">a</button>
-            <button id="1">s</button>
-            <button id="2">k</button>
-            <button id="3">l</button>
+        <div class="hud-right">
+            <div id="hud-score" class="hud-score">0</div>
+            <div id="hud-acc" class="hud-acc">100.00%</div>
         </div>
+        <div class="progress"><div id="progress-fill" class="progress-fill"></div></div>
     </div>
+
+    <!-- Pause -->
+    <section id="pause" class="screen overlay" aria-labelledby="pause-title" hidden>
+        <div class="panel panel-narrow">
+            <h2 id="pause-title">Paused</h2>
+            <div class="stack">
+                <button id="resume-btn" class="btn btn-primary">Resume</button>
+                <button id="finish-record-btn" class="btn" hidden>Finish recording</button>
+                <button id="restart-btn" class="btn">Restart</button>
+                <button id="pause-settings-btn" class="btn">Settings</button>
+            </div>
+            <div id="map-timing" class="map-timing">
+                <span>Map timing</span>
+                <button id="timing-minus" class="btn btn-small" aria-label="Make notes 10 ms earlier">−</button>
+                <output id="timing-value">+0 ms</output>
+                <button id="timing-plus" class="btn btn-small" aria-label="Make notes 10 ms later">+</button>
+                <p class="muted small">Press + if notes reach the line before the beat. During play, use the − and = keys (hold Shift for bigger steps).</p>
+            </div>
+            <div class="stack">
+                <button id="quit-btn" class="btn btn-quiet">Back to song select</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Results -->
+    <section id="results" class="screen overlay" aria-labelledby="results-title" hidden>
+        <div class="panel">
+            <div class="results-head">
+                <div>
+                    <h2 id="results-title">Night</h2>
+                    <p id="results-sub" class="muted"></p>
+                </div>
+                <div id="results-grade" class="grade">A</div>
+            </div>
+            <div class="results-score">
+                <span id="results-score">0</span>
+                <span id="results-best" class="badge" hidden>New best</span>
+            </div>
+            <dl class="stats">
+                <div><dt>Accuracy</dt><dd id="r-acc">0%</dd></div>
+                <div><dt>Max combo</dt><dd id="r-combo">0</dd></div>
+                <div class="j-perfect"><dt>Perfect</dt><dd id="r-perfect">0</dd></div>
+                <div class="j-great"><dt>Great</dt><dd id="r-great">0</dd></div>
+                <div class="j-good"><dt>Good</dt><dd id="r-good">0</dd></div>
+                <div class="j-miss"><dt>Miss</dt><dd id="r-miss">0</dd></div>
+            </dl>
+            <figure class="timing">
+                <canvas id="timing-chart" width="560" height="90" aria-label="Hit timing distribution"></canvas>
+                <figcaption><span>Early</span><span id="timing-mean"></span><span>Late</span></figcaption>
+            </figure>
+            <div id="offset-suggest" class="offset-suggest" hidden>
+                <p id="offset-suggest-text"></p>
+                <button id="offset-apply" class="btn btn-small">Apply</button>
+            </div>
+            <div class="row">
+                <button id="retry-btn" class="btn btn-primary">Play again</button>
+                <button id="results-download" class="btn" hidden>Download beatmap</button>
+                <button id="results-menu-btn" class="btn">Back to song select</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Recording finished -->
+    <section id="record-done" class="screen overlay" aria-labelledby="record-title" hidden>
+        <div class="panel panel-narrow">
+            <h2 id="record-title">Beatmap recorded</h2>
+            <p id="record-summary" class="muted"></p>
+            <div class="stack">
+                <button id="record-download" class="btn btn-primary">Download CSV</button>
+                <button id="record-play" class="btn">Play it now</button>
+                <button id="record-again" class="btn">Record again</button>
+                <button id="record-menu" class="btn btn-quiet">Back to song select</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Settings -->
+    <dialog id="settings" class="panel settings" aria-labelledby="settings-title">
+        <form method="dialog">
+            <div class="settings-head">
+                <h2 id="settings-title">Settings</h2>
+                <button class="btn btn-quiet btn-small" value="close">Done</button>
+            </div>
+
+            <fieldset>
+                <legend>Keys</legend>
+                <p class="muted small">Select a lane, then press the key you want for it.</p>
+                <div id="keybinds" class="keybinds"></div>
+            </fieldset>
+
+            <label class="setting">
+                <span>Scroll speed</span>
+                <input id="set-speed" type="range" min="2" max="14" step="0.5">
+                <output id="set-speed-out"></output>
+            </label>
+            <label class="setting">
+                <span>Audio offset</span>
+                <input id="set-offset" type="range" min="-250" max="250" step="5">
+                <output id="set-offset-out"></output>
+            </label>
+            <p class="muted small setting-help">Raise it if notes reach the line before you hear the beat.</p>
+            <label class="setting">
+                <span>Volume</span>
+                <input id="set-volume" type="range" min="0" max="100" step="1">
+                <output id="set-volume-out"></output>
+            </label>
+            <label class="setting setting-check">
+                <span>Penalize presses on empty lanes</span>
+                <input id="set-ghost" type="checkbox">
+            </label>
+        </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <div id="loading" class="loading" aria-live="polite">Loading…</div>
+
     <script src="rythm.js"></script>
 </body>
 </html>
