@@ -539,6 +539,7 @@ function quitToMenu() {
     state.recordingSaved = true;      // leaving was confirmed, or there was nothing to save
     if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
     renderMenu();
+    renderCommunity();
     setScreen('menu');
 }
 
@@ -558,9 +559,10 @@ function finishPlay() {
     const chart = state.chart;
     const score = Math.round(state.score);
 
-    // Only built-in maps keep a best score.
+    // Built-in and community maps keep a best score in this browser.
     let isBest = false;
-    if (CHARTS.includes(chart)) {
+    if (chart.community) countCommunityPlay(chart.onlineId);
+    if (CHARTS.includes(chart) || chart.community) {
         const prev = bests[chart.id];
         if (!prev || score > prev.score) {
             bests[chart.id] = { score, acc: Math.round(acc * 100) / 100, grade };
@@ -586,6 +588,9 @@ function finishPlay() {
     suggestOffset(state.deltas);
     const unsaved = chart.id === 'recording' && !state.recordingSaved;
     $('results-download').hidden = !unsaved;
+    const shareable = chart.id === 'recording' || chart.id.startsWith('import:');
+    const alreadyShared = sharedSigs.has(notesSig(state.sourceNotes)) || sharedSigs.has('chart:' + chart.id);
+    $('results-share').hidden = !(online.configured && shareable && !alreadyShared);
     resetDiscardButton();
     setScreen('results');
     drawTimingChart(state.deltas);      // after the panel is visible so it can measure its width
@@ -608,6 +613,7 @@ function finishRecording() {
     state.recordingSaved = !count;
     resetDiscardButton();
     $('record-download').disabled = !count;
+    $('record-share').hidden = !(online.configured && count && !sharedSigs.has(notesSig(notes)));
     $('record-play').disabled = !count;
     setScreen('record-done');
     (count ? $('record-download') : $('record-again')).focus();
@@ -735,7 +741,7 @@ function eventSongTime(e) {
 
 window.addEventListener('keydown', (e) => {
     if (rebindLane !== -1) return;              // handled by the settings dialog
-    if (el.settings.open) return;
+    if (anyDialogOpen()) return;                // typing in a dialog never hits lanes
 
     const lane = settings.keys.indexOf(e.code);
     const inRun = state.screen === 'play' || state.screen === 'record';
@@ -762,6 +768,8 @@ window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     pressLane(lane, inRun ? eventSongTime(e) : 0);
 });
+
+function anyDialogOpen() { return !!document.querySelector('dialog[open]'); }
 
 function formatMs(ms) { return `${ms > 0 ? '+' : ''}${Math.round(ms)} ms`; }
 
@@ -1354,6 +1362,375 @@ $('record-again').addEventListener('click', () => confirmDiscard($('record-again
 $('record-menu').addEventListener('click', () => confirmDiscard($('record-menu'), quitToMenu));
 
 // ------------------------------------------------------------------
+// Community maps (shared online through Supabase, see online.js)
+// ------------------------------------------------------------------
+
+const online = window.RhythmOnline || { configured: false };
+const COMMUNITY_PAGE = 20;
+const community = {
+    sort: 'new',
+    rows: [],
+    loaded: false,
+    loading: false,
+    done: false,
+    error: '',
+    seq: 0,
+    linked: null,              // map opened from a ?map= link, shown first
+    notes: new Map(),          // map id -> notes, so replays don't refetch
+};
+const sharedSigs = new Set();  // maps shared from this page, so Share isn't offered twice
+
+function notesSig(notes) {
+    return (notes || []).map((n) => `${n.lane}:${Math.round(n.time)}`).join(',');
+}
+
+function setTab(name, focus = false) {
+    const isCommunity = name === 'community';
+    const tb = $('tab-builtin');
+    const tc = $('tab-community');
+    tb.setAttribute('aria-selected', String(!isCommunity));
+    tc.setAttribute('aria-selected', String(isCommunity));
+    tb.tabIndex = isCommunity ? -1 : 0;
+    tc.tabIndex = isCommunity ? 0 : -1;
+    $('panel-builtin').hidden = isCommunity;
+    $('panel-community').hidden = !isCommunity;
+    if (focus) (isCommunity ? tc : tb).focus();
+    store.set('tab', name);
+    if (isCommunity && !community.loaded && !community.loading) loadCommunity(true);
+}
+
+$('tab-builtin').addEventListener('click', () => setTab('builtin'));
+$('tab-community').addEventListener('click', () => setTab('community'));
+document.querySelector('.tabs').addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') {
+        e.preventDefault();
+        const toCommunity = e.key === 'End' || (e.key !== 'Home' && $('tab-builtin').getAttribute('aria-selected') === 'true');
+        setTab(toCommunity ? 'community' : 'builtin', true);
+    }
+});
+
+for (const btn of document.querySelectorAll('.seg')) {
+    btn.addEventListener('click', () => {
+        if (community.sort === btn.dataset.sort) return;
+        community.sort = btn.dataset.sort;
+        for (const b of document.querySelectorAll('.seg')) b.setAttribute('aria-pressed', String(b === btn));
+        loadCommunity(true);
+    });
+}
+$('community-refresh').addEventListener('click', () => loadCommunity(true));
+$('community-more').addEventListener('click', () => loadCommunity(false));
+
+async function loadCommunity(reset) {
+    if (!online.configured) { renderCommunity(); return; }
+    if (!reset && community.loading) return;
+    const seq = ++community.seq;
+    if (reset) { community.rows = []; community.done = false; }
+    community.loading = true;
+    community.error = '';
+    renderCommunity();
+    try {
+        const rows = await online.listMaps({ sort: community.sort, limit: COMMUNITY_PAGE, offset: community.rows.length });
+        if (seq !== community.seq) return;              // a newer request replaced this one
+        for (const r of rows) if (!community.rows.some((x) => x.id === r.id)) community.rows.push(r);
+        community.done = rows.length < COMMUNITY_PAGE;
+        community.loaded = true;
+    } catch (err) {
+        if (seq !== community.seq) return;
+        community.error = err.message;
+    } finally {
+        if (seq === community.seq) {
+            community.loading = false;
+            renderCommunity();
+        }
+    }
+}
+
+function renderCommunity() {
+    const list = $('community-list');
+    const status = $('community-status');
+    const more = $('community-more');
+    list.innerHTML = '';
+    if (!online.configured) {
+        status.textContent = 'Online maps aren’t set up yet. Add your Supabase key to supabase-config.js.';
+        more.hidden = true;
+        $('community-refresh').hidden = true;
+        return;
+    }
+    const rows = community.linked
+        ? [community.linked, ...community.rows.filter((r) => r.id !== community.linked.id)]
+        : community.rows;
+    for (const row of rows) list.appendChild(communityRow(row, row === community.linked));
+
+    if (community.loading) status.textContent = 'Loading maps…';
+    else if (community.error) status.textContent = community.error;
+    else if (community.loaded && !rows.length) status.textContent = 'No one has shared a map yet. Record one, then choose Share online.';
+    else status.textContent = '';
+    more.hidden = community.done || community.loading || !!community.error || !community.rows.length;
+}
+
+function communityChart(row) {
+    return {
+        id: 'community:' + row.id,
+        onlineId: row.id,
+        community: true,
+        song: row.song,
+        title: row.title,
+        level: `by ${row.author}`,
+        offset: 0,
+    };
+}
+
+function communityRow(row, linked) {
+    const li = document.createElement('li');
+    if (linked) li.classList.add('linked');
+    const owned = online.ownsMap(row.id);
+    const playable = Object.prototype.hasOwnProperty.call(SONGS, row.song);
+
+    const btn = document.createElement('button');
+    btn.className = 'chart';
+    let h = 0;
+    for (const c of row.id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    btn.style.setProperty('--accent', LANE_COLORS[h % LANE_COUNT]);
+
+    const name = document.createElement('span');
+    name.className = 'chart-name';
+    if (linked) {
+        const tag = document.createElement('span');
+        tag.className = 'chart-tag';
+        tag.textContent = 'Shared with you';
+        name.appendChild(tag);
+    }
+    name.append(row.title);
+
+    const meta = document.createElement('span');
+    meta.className = 'chart-meta';
+    const plays = Number(row.plays) || 0;
+    meta.textContent = playable
+        ? `by ${owned ? 'you' : row.author}, ${row.note_count} notes in ${formatDuration(row.duration_ms)}, ${plays} play${plays === 1 ? '' : 's'}`
+        : 'Needs a song this version of the game doesn’t have';
+    btn.disabled = !playable;
+
+    const best = document.createElement('span');
+    best.className = 'chart-best';
+    const b = bests['community:' + row.id];
+    if (b) {
+        const strong = document.createElement('strong');
+        strong.textContent = b.grade;
+        best.append(strong, Math.round(b.score).toLocaleString());
+    } else {
+        best.textContent = 'Not played';
+    }
+
+    btn.append(name, meta, best);
+    btn.addEventListener('click', () => playCommunity(row, btn));
+    li.appendChild(btn);
+
+    if (owned) {
+        li.classList.add('has-action');
+        const del = document.createElement('button');
+        del.className = 'btn btn-quiet btn-small row-action';
+        del.textContent = 'Delete';
+        del.setAttribute('aria-label', `Delete ${row.title}`);
+        del.addEventListener('click', () => deleteCommunityMap(row, del));
+        li.appendChild(del);
+    }
+    return li;
+}
+
+async function playCommunity(row, btn) {
+    if (starting) return;
+    let notes = community.notes.get(row.id) || (row.notes && row.notes.length ? row.notes : null);
+    if (!notes) {
+        const meta = btn.querySelector('.chart-meta');
+        const before = meta.textContent;
+        btn.disabled = true;
+        meta.textContent = 'Loading map…';
+        try {
+            const full = await online.getMap(row.id);
+            if (!full) {
+                toast('This map has been deleted.', true);
+                forgetCommunityRow(row.id);
+                return;
+            }
+            notes = full.notes;
+        } catch (err) {
+            toast(err.message, true);
+            return;
+        } finally {
+            if (btn.isConnected) { btn.disabled = false; meta.textContent = before; }
+        }
+    }
+    community.notes.set(row.id, notes);
+    startPlay(communityChart(row), notes, btn);
+}
+
+function forgetCommunityRow(id) {
+    community.rows = community.rows.filter((r) => r.id !== id);
+    if (community.linked && community.linked.id === id) community.linked = null;
+    community.notes.delete(id);
+    renderCommunity();
+}
+
+async function deleteCommunityMap(row, btn) {
+    if (btn.dataset.armed !== 'true') {
+        btn.dataset.armed = 'true';
+        btn.textContent = 'Delete?';
+        btn.classList.add('btn-danger');
+        setTimeout(() => {
+            if (btn.isConnected && btn.dataset.armed === 'true') {
+                btn.dataset.armed = '';
+                btn.textContent = 'Delete';
+                btn.classList.remove('btn-danger');
+            }
+        }, 4000);
+        return;
+    }
+    btn.disabled = true;
+    try {
+        const deleted = await online.deleteMap(row.id);
+        toast(deleted ? `Deleted “${row.title}”.` : 'That map was already deleted.');
+        forgetCommunityRow(row.id);
+    } catch (err) {
+        btn.disabled = false;
+        toast(err.message, true);
+    }
+}
+
+function countCommunityPlay(id) {
+    online.countPlay(id);
+    for (const r of [...community.rows, community.linked]) if (r && r.id === id) r.plays = (Number(r.plays) || 0) + 1;
+}
+
+async function openSharedLink() {
+    const id = new URLSearchParams(location.search).get('map') || '';
+    setTab('community');
+    if (!online.configured) return;
+    if (!online.UUID_RE.test(id)) {
+        toast('That map link is incomplete. Ask for the link again.', true);
+        return;
+    }
+    try {
+        const row = await online.getMap(id);
+        if (!row) {
+            toast('That shared map was deleted.', true);
+        } else {
+            community.linked = row;
+            community.notes.set(row.id, row.notes);
+            renderCommunity();
+        }
+    } catch (err) {
+        toast(err.message, true);
+    }
+}
+
+// ---------- Sharing ----------
+
+const shareDialog = $('share-dialog');
+let shareJob = null;   // { notes, song, onShared }
+
+function openShare(notes, defaultTitle, song, onShared) {
+    if (!online.configured) return;
+    shareJob = { notes, song, onShared };
+    $('share-edit').hidden = false;
+    $('share-done').hidden = true;
+    $('share-error').hidden = true;
+    $('share-map-title').value = defaultTitle.slice(0, online.LIMITS.title);
+    $('share-author').value = store.get('playerName', '');
+    const last = notes.length ? notes[notes.length - 1].time : 0;
+    $('share-summary').textContent = `${notes.length} note${notes.length === 1 ? '' : 's'} over ${formatDuration(last)}, played to ${SONGS[song].title}.`;
+    $('share-submit').disabled = false;
+    $('share-submit').textContent = 'Share map';
+    $('share-copy').textContent = 'Copy link';
+    shareDialog.showModal();
+    ($('share-author').value ? $('share-map-title') : $('share-author')).focus();
+}
+
+$('share-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!shareJob || $('share-submit').disabled) return;
+    const title = $('share-map-title').value.trim();
+    const author = $('share-author').value.trim();
+    const error = $('share-error');
+    if (!title || !author) {
+        error.textContent = !title ? 'Give the map a title.' : 'Enter your name so players know who made it.';
+        error.hidden = false;
+        (!title ? $('share-map-title') : $('share-author')).focus();
+        return;
+    }
+    error.hidden = true;
+    const submit = $('share-submit');
+    submit.disabled = true;
+    submit.textContent = 'Sharing…';
+    const job = shareJob;
+    try {
+        const row = await online.shareMap({ title, author, song: job.song, notes: job.notes });
+        store.set('playerName', author);
+        sharedSigs.add(notesSig(job.notes));
+        community.notes.set(row.id, job.notes.slice());
+        if (community.loaded && community.sort === 'new') community.rows.unshift(row);
+        else community.loaded = false;           // reload next time the tab opens
+        renderCommunity();
+        if (job.onShared) job.onShared(row);
+        $('share-link').value = online.mapLink(row.id);
+        $('share-edit').hidden = true;
+        $('share-done').hidden = false;
+        $('share-copy').focus();
+    } catch (err) {
+        error.textContent = err.message;
+        error.hidden = false;
+    } finally {
+        submit.disabled = false;
+        submit.textContent = 'Share map';
+    }
+});
+
+$('share-copy').addEventListener('click', async () => {
+    const input = $('share-link');
+    const btn = $('share-copy');
+    let ok = true;
+    try {
+        await navigator.clipboard.writeText(input.value);
+    } catch {
+        input.select();
+        try { ok = document.execCommand('copy'); } catch { ok = false; }
+    }
+    // A toast would sit behind the open dialog, so the button reports instead.
+    btn.textContent = ok ? 'Copied' : 'Select the link and copy it';
+    if (!ok) input.select();
+    setTimeout(() => { btn.textContent = 'Copy link'; }, 2000);
+});
+$('share-cancel').addEventListener('click', () => shareDialog.close());
+$('share-close').addEventListener('click', () => shareDialog.close());
+shareDialog.addEventListener('close', () => {
+    dialogClosedAt = performance.now();
+    shareJob = null;
+});
+
+$('record-share').addEventListener('click', () => {
+    openShare(state.recorded, `${SONGS.night.title} recording`, 'night', () => {
+        state.recordingSaved = true;
+        resetDiscardButton();
+        $('record-share').hidden = true;
+    });
+});
+$('results-share').addEventListener('click', () => {
+    const chart = state.chart;
+    const defaultTitle = chart.id === 'recording' ? `${SONGS.night.title} recording` : chart.title;
+    // Bake in any map timing the player dialed in, so others get the corrected map.
+    const shift = chart.id === 'recording' ? 0 : (mapTiming[chart.id] || 0);
+    const notes = state.sourceNotes.map((n) => ({ lane: n.lane, time: n.time + shift }));
+    openShare(notes, defaultTitle, chart.song, () => {
+        if (chart.id.startsWith('import:')) sharedSigs.add('chart:' + chart.id);
+        if (chart.id === 'recording') {
+            state.recordingSaved = true;
+            resetDiscardButton();
+            $('results-download').hidden = true;
+        }
+        $('results-share').hidden = true;
+    });
+});
+
+// ------------------------------------------------------------------
 // Settings
 // ------------------------------------------------------------------
 
@@ -1494,6 +1871,9 @@ async function boot() {
 
     await labelKeysForLayout();
     renderMenu();
+    renderCommunity();
+    if (new URLSearchParams(location.search).has('map')) openSharedLink();   // loads in the background
+    else setTab(store.get('tab', 'builtin') === 'community' ? 'community' : 'builtin');
     setScreen('menu');
     if (failed) toast(loadErrorMessage(results.find((r) => r.status === 'rejected').reason), true);
 }

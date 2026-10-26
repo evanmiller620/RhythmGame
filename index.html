@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="description" content="A four-lane rhythm game. Play the built-in maps, import your own, or record a new beatmap.">
+    <meta name="description" content="A four-lane rhythm game. Play the built-in maps, record your own, and share them for others to play.">
     <meta name="theme-color" content="#121214">
     <title>Rhythm</title>
     <link rel="preload" href="assets/fonts/unbounded-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -20,8 +20,27 @@
             <div class="lane-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
         </header>
 
-        <h2 class="section-title">Choose a map</h2>
-        <ul id="chart-list" class="chart-list"></ul>
+        <div class="tabs" role="tablist" aria-label="Maps">
+            <button id="tab-builtin" class="tab" role="tab" aria-selected="true" aria-controls="panel-builtin">Built-in</button>
+            <button id="tab-community" class="tab" role="tab" aria-selected="false" aria-controls="panel-community" tabindex="-1">Community</button>
+        </div>
+
+        <div id="panel-builtin" class="tab-panel" role="tabpanel" aria-labelledby="tab-builtin">
+            <ul id="chart-list" class="chart-list"></ul>
+        </div>
+
+        <div id="panel-community" class="tab-panel" role="tabpanel" aria-labelledby="tab-community" hidden>
+            <div class="community-bar">
+                <div class="segmented" role="group" aria-label="Sort maps">
+                    <button class="seg" data-sort="new" aria-pressed="true">Newest</button>
+                    <button class="seg" data-sort="popular" aria-pressed="false">Most played</button>
+                </div>
+                <button id="community-refresh" class="btn btn-quiet btn-small">Refresh</button>
+            </div>
+            <ul id="community-list" class="chart-list"></ul>
+            <p id="community-status" class="community-status muted small" aria-live="polite"></p>
+            <button id="community-more" class="btn btn-quiet more-btn" hidden>Show more</button>
+        </div>
 
         <div class="menu-actions">
             <button id="import-btn" class="btn">Import beatmap</button>
@@ -109,6 +128,7 @@
             <div class="row">
                 <button id="retry-btn" class="btn btn-primary">Play again</button>
                 <button id="results-download" class="btn" hidden>Download beatmap</button>
+                <button id="results-share" class="btn" hidden>Share online</button>
                 <button id="results-menu-btn" class="btn">Back to song select</button>
             </div>
         </div>
@@ -121,6 +141,7 @@
             <p id="record-summary" class="muted"></p>
             <div class="stack">
                 <button id="record-download" class="btn btn-primary">Download CSV</button>
+                <button id="record-share" class="btn" hidden>Share online</button>
                 <button id="record-play" class="btn">Play it now</button>
                 <button id="record-again" class="btn">Record again</button>
                 <button id="record-menu" class="btn btn-quiet">Back to song select</button>
@@ -165,9 +186,47 @@
         </form>
     </dialog>
 
+    <!-- Share a map online -->
+    <dialog id="share-dialog" class="panel settings share" aria-labelledby="share-title">
+        <form id="share-form" novalidate>
+            <div id="share-edit">
+                <h2 id="share-title">Share online</h2>
+                <p class="muted small share-lead">Anyone can find and play it under Community. You can delete it later from this browser.</p>
+                <label class="field">
+                    <span>Map title</span>
+                    <input id="share-map-title" type="text" maxlength="60" required autocomplete="off" spellcheck="false">
+                </label>
+                <label class="field">
+                    <span>Your name</span>
+                    <input id="share-author" type="text" maxlength="24" required autocomplete="nickname" spellcheck="false">
+                </label>
+                <p id="share-summary" class="muted small"></p>
+                <p id="share-error" class="field-error" role="alert" hidden></p>
+                <div class="row">
+                    <button id="share-submit" type="submit" class="btn btn-primary">Share map</button>
+                    <button id="share-cancel" type="button" class="btn btn-quiet">Cancel</button>
+                </div>
+            </div>
+            <div id="share-done" hidden>
+                <h2>Map shared</h2>
+                <p class="muted small share-lead">It’s listed under Community now. Send this link to let someone open it directly.</p>
+                <label class="field">
+                    <span>Link</span>
+                    <input id="share-link" type="text" readonly>
+                </label>
+                <div class="row">
+                    <button id="share-copy" type="button" class="btn btn-primary">Copy link</button>
+                    <button id="share-close" type="button" class="btn btn-quiet">Done</button>
+                </div>
+            </div>
+        </form>
+    </dialog>
+
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <div id="loading" class="loading" aria-live="polite">Loading…</div>
 
+    <script src="supabase-config.js"></script>
+    <script src="online.js"></script>
     <script src="rythm.js"></script>
 </body>
 </html>

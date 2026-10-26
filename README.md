@@ -36,6 +36,30 @@ The built-in maps in `assets/` were made with the first version of the game. It 
 
 If a map feels early or late, adjust its timing while you play with the **−** and **=** keys (hold Shift for 50 ms steps), or with the Map timing buttons in the pause menu. Each map remembers its own setting, and the results screen suggests one based on your hits.
 
+## Community maps (online)
+
+Players can share the maps they record, and anyone can browse and play them under **Community** on the song-select screen.
+
+- **Share:** after recording (or after playing an imported map), choose **Share online**, then give it a title and your name. You get a link that opens the map directly (`?map=<id>`).
+- **Browse:** sort by newest or most played. Plays are counted when someone finishes a map.
+- **Delete:** only the browser that shared a map can delete it (**Delete** on the row). Clearing your browser's site data loses that ability. As the project owner, you can delete any map from the Supabase dashboard.
+
+Maps are stored in the Supabase project this repo shares with Coup. Everything is prefixed `rhythm_`, so nothing touches Coup's tables.
+
+### One-time setup
+
+1. In the Supabase dashboard, open **SQL Editor**, paste the contents of `supabase/rhythm_schema.sql`, and run it once.
+2. Open **Project Settings → API** and copy the **anon public** (or **publishable**) key.
+3. Paste it into `supabase-config.js` as `anonKey`. This key is meant to be public, because row-level security decides what it can do. Never use the `service_role` / secret key here.
+
+Without a key, the game runs normally and the Community tab explains that online maps aren't set up.
+
+### What the server allows
+
+Anyone can read maps and share new ones. Nobody can edit a map after sharing it, change its play count except through `rhythm_count_play()`, or delete a map without the token held by the browser that shared it. Maps are checked on the server: 1–5000 notes, lanes 0–3, times 0–20 minutes, titles up to 60 characters, names up to 24.
+
+There is no sign-in and no per-player rate limit, so anyone could flood the list with maps. If that becomes a problem, delete the rows in the dashboard. Adding Supabase Auth or a rate-limiting Edge Function would be the next step.
+
 ## Running locally
 
 Browsers won't load the song from a `file://` page, so serve the folder:
@@ -53,5 +77,8 @@ Then open the address it prints.
 - `index.html` – page structure and screens
 - `rythm.js` – game engine (audio clock, judging, rendering, recording, settings)
 - `rythm.css` – styles
+- `online.js` – client for the community map server (Supabase REST API, no SDK)
+- `supabase-config.js` – Supabase URL and public key
+- `supabase/rhythm_schema.sql` – tables, security rules and functions for community maps
 - `night.mp3` – the song
 - `assets/` – beatmaps, background image, and bundled fonts (Unbounded and DM Sans, SIL Open Font License)
